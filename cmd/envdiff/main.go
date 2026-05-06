@@ -11,49 +11,48 @@ import (
 )
 
 func main() {
-	maskSecrets := flag.Bool("mask", true, "mask sensitive values in output")
-	summaryOnly := flag.Bool("summary", false, "print summary only")
-	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: envdiff [options] <file-a> <file-b>\n\nOptions:\n")
-		flag.PrintDefaults()
-	}
+	baseFile := flag.String("base", "", "Base .env file (required)")
+	targetFile := flag.String("target", "", "Target .env file (required)")
+	maskSecrets := flag.Bool("mask", true, "Mask sensitive values")
+	tableFormat := flag.Bool("table", false, "Render output as aligned table")
 	flag.Parse()
 
-	args := flag.Args()
-	if len(args) != 2 {
-		flag.Usage()
+	if *baseFile == "" || *targetFile == "" {
+		fmt.Fprintln(os.Stderr, "Usage: envdiff -base <file> -target <file> [-mask] [-table]")
 		os.Exit(1)
 	}
 
-	fileA, fileB := args[0], args[1]
-
-	envA, err := parseFile(fileA)
+	base, err := parseFile(*baseFile)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error reading %s: %v\n", fileA, err)
+		fmt.Fprintf(os.Stderr, "error reading base file: %v\n", err)
 		os.Exit(1)
 	}
 
-	envB, err := parseFile(fileB)
+	target, err := parseFile(*targetFile)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error reading %s: %v\n", fileB, err)
+		fmt.Fprintf(os.Stderr, "error reading target file: %v\n", err)
 		os.Exit(1)
 	}
 
-	results := diff.Compare(envA, envB)
+	result := diff.Compare(base, target)
 
-	if *summaryOnly {
-		output.Summary(os.Stdout, results)
-	} else {
-		output.WriteDiff(os.Stdout, results, *maskSecrets)
-		fmt.Fprintln(os.Stdout)
-		output.Summary(os.Stdout, results)
+	var masker *diff.Masker
+	if *maskSecrets {
+		masker = diff.NewMasker()
 	}
 
-	for _, r := range results {
-		if r.Status != diff.Unchanged {
+	if *tableFormat {
+		tw := output.NewTableWriter(os.Stdout, masker)
+		if err := tw.Write(result); err != nil {
+			fmt.Fprintf(os.Stderr, "error writing table: %v\n", err)
 			os.Exit(1)
 		}
+	} else {
+		output.WriteDiff(os.Stdout, result, masker)
 	}
+
+	fmt.Fprintln(os.Stdout)
+	output.Summary(os.Stdout, result)
 }
 
 func parseFile(path string) (map[string]string, error) {
